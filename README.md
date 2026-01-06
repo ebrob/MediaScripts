@@ -17,19 +17,25 @@ pip3 install --upgrade "scenedetect[opencv]"
 brew install ffmpeg
 ```
 
-# convert-batch.sh
+## Set permissions
+
+```
+sudo chmod 755 [filename]
+```
+
+## convert-batch.sh
 
 This will convert (with deinterlacing) a set of old `.avi` files to `.mp4`
 
-# detect-scenes.sh
+## detect-scenes.sh
 
 This will use the PySceneDetect tool to generate a `.csv` file of scenes in a set of `.m2ts` files
 
-# split-scenes.sh
+## split-scenes.sh
 
 This will read the above `.csv` files and use `ffmpeg` to split, deinterlace, and convert each scene to its own `.mp4` file.
 
-# organize-media.sh
+## organize-media.sh
 
 This will pull the date that a photo was captured and append the date in `YYYY-MM-DD` format to the file name. Also will put it in folder with the date.
 
