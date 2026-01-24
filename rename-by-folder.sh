@@ -15,9 +15,7 @@ for file in ${dir}/**/*(.); do
 
     dateDir=${path_array[-1]}
     if [[ "$dateDir" =~ (^[0-9]{4}-[0-9]{2}-[0-9]{2}$) ]]; then
-        #echo " - Valid!"
         if [[ "$basename" == "$dateDir"* ]]; then
-            #echo " - Already done"
             continue;
         fi
         

@@ -1,16 +1,16 @@
 #!/bin/zsh
-#echo "Current date and time: $(date)"
 
 zmodload zsh/datetime
-echo "Please enter the directory:"
-read dir
-#dir="/Volumes/LocalBackup/Mega/iPhone-backups/iPhone-backup-2019-06-16/101APPLE"
+#echo "Please enter the directory:"
+#read sourceDir
+
+sourceDir="/Volumes/Media/Photos/intake"
+targetDir="/Volumes/Media/Photos"
 
 notAllowed=( "db" "info" "jbp" "ps1" "sh" "aae" )
 
-for file in ${dir}/*(.); do
+for file in ${sourceDir}/*(.); do
     extension="${(L)file:e}"
-    echo $extension
     basename="${file:t:r}"
     localDir="${file:h}"
     if (( notAllowed[(Ie)$extension] )); then
@@ -31,7 +31,6 @@ for file in ${dir}/*(.); do
     fi
     if [[ -z "$textDateTaken" || "null" = "$textDateTaken" ]]; then
         echo " - Could not find creation date"
-        #echo $json_metadata
         continue;
     fi
 
@@ -39,16 +38,22 @@ for file in ${dir}/*(.); do
     yearPrefix=$( strftime "%Y" $whenTaken )
     datePrefix=$( strftime "%Y-%m-%d" $whenTaken )
 
-    yearDir="${localDir}/${yearPrefix}"
-    dateDir="${localDir}/${yearPrefix}/${datePrefix}"
+    yearDir="${targetDir}/${yearPrefix}"
+    dateDir="${targetDir}/${yearPrefix}/${datePrefix}"
     newPath="${dateDir}/${datePrefix}-${basename}.${extension}"
     if [[ "$basename" == "$datePrefix"* ]]; then
-        echo " - Already done"
+        echo " *** Already renamed"
         continue;
     fi
 
     mkdir -p $yearDir
     mkdir -p $dateDir
+
+    if [[ -f "$newPath" ]]; then
+        echo " *** Already exists at ${newPath}"
+        continue;
+    fi
+
     mv $file $newPath
-    echo " - Renamed to ${newPath}"
+    echo " - Renamed/moved to ${newPath}"
 done
