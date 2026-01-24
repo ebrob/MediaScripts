@@ -23,19 +23,31 @@ brew install ffmpeg
 sudo chmod 755 [filename]
 ```
 
-## convert-batch.sh
+## General-purpose scripts
 
-This will convert (with deinterlacing) a set of old `.avi` files to `.mp4`
+### import-media.sh
 
-## detect-scenes.sh
+Looks at the `/Photos/import` folder and finds all photos and movies there. For each, it will
 
-This will use the PySceneDetect tool to generate a `.csv` file of scenes in a set of `.m2ts` files
+- Pull the date that a photo/video was captured and prepend the date in `YYYY-MM-DD` format to the file name.
+- Ensure that the approprate year/date folders exists in in `/Photos`,
+- Move the photo/movie to the year/date folder.
 
-## split-scenes.sh
+### rename-by-folder.sh
+
+Goes through the `/Photos` folders and ensures that all photos/movies have the date prepended, if possible.
+
+## Video scripts
+
+### convert-batch.sh
+
+This will convert video (with deinterlacing) a set of old `.avi` files to `.mp4`
+
+### detect-scenes.sh
+
+This will use the PySceneDetect tool to generate a `.csv` file of scenes in a set of `.m2ts` vide files.
+
+### split-scenes.sh
 
 This will read the above `.csv` files and use `ffmpeg` to split, deinterlace, and convert each scene to its own `.mp4` file.
-
-## organize-media.sh
-
-This will pull the date that a photo was captured and append the date in `YYYY-MM-DD` format to the file name. Also will put it in folder with the date.
 

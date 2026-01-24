@@ -1,8 +1,6 @@
 #!/bin/zsh
 
 zmodload zsh/datetime
-#echo "Please enter the directory:"
-#read sourceDir
 
 sourceDir="/Volumes/Media/Photos/intake"
 targetDir="/Volumes/Media/Photos"
@@ -12,7 +10,6 @@ notAllowed=( "db" "info" "jbp" "ps1" "sh" "aae" )
 for file in ${sourceDir}/*(.); do
     extension="${(L)file:e}"
     basename="${file:t:r}"
-    localDir="${file:h}"
     if (( notAllowed[(Ie)$extension] )); then
         continue;
     fi
@@ -38,22 +35,24 @@ for file in ${sourceDir}/*(.); do
     yearPrefix=$( strftime "%Y" $whenTaken )
     datePrefix=$( strftime "%Y-%m-%d" $whenTaken )
 
-    yearDir="${targetDir}/${yearPrefix}"
-    dateDir="${targetDir}/${yearPrefix}/${datePrefix}"
-    newPath="${dateDir}/${datePrefix}-${basename}.${extension}"
+    # Does the filename already have the date prepended?
     if [[ "$basename" == "$datePrefix"* ]]; then
         echo " *** Already renamed"
         continue;
     fi
 
+    # Ensure year and date folders exist
+    yearDir="${targetDir}/${yearPrefix}"
+    dateDir="${targetDir}/${yearPrefix}/${datePrefix}"
     mkdir -p $yearDir
     mkdir -p $dateDir
 
-    if [[ -f "$newPath" ]]; then
-        echo " *** Already exists at ${newPath}"
+    targetPath="${dateDir}/${datePrefix}-${basename}.${extension}"
+    if [[ -f "$targetPath" ]]; then
+        echo " *** Already exists at ${targetPath}"
         continue;
     fi
 
-    mv $file $newPath
-    echo " - Renamed/moved to ${newPath}"
+    mv $file $targetPath
+    echo " - Renamed/moved to ${targetPath}"
 done
