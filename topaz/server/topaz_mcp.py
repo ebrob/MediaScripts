@@ -20,7 +20,24 @@ MODEL_DIR = Path(os.environ.get("TVAI_MODEL_DIR", r"C:\ProgramData\Topaz Labs LL
 _UNC = r"\\192.168.5.5\tracklessdeep\upscaling"
 _candidates = [c for c in (os.environ.get("TOPAZ_ROOT"), os.environ.get("TOPAZ_PATH"),
                            r"H:\upscaling", _UNC) if c]
-ROOT = Path(next((c for c in _candidates if os.path.isdir(c)), _candidates[0])).resolve()
+NAS_SHARE = os.environ.get("TOPAZ_NAS_SHARE", r"\\192.168.5.5\tracklessdeep")
+MOUNT_ERROR = ""
+
+
+def _pick_root() -> str | None:
+    return next((c for c in _candidates if os.path.isdir(c)), None)
+
+
+if _pick_root() is None:
+    # Nothing visible (typical for SSH logons): connect to the NAS with the saved credential.
+    r = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+         str(Path(__file__).with_name("mount-nas.ps1")), "-Share", NAS_SHARE],
+        capture_output=True, text=True, timeout=60,
+    )
+    if r.returncode != 0:
+        MOUNT_ERROR = (r.stderr or r.stdout).strip()[:300]
+ROOT = Path(_pick_root() or _candidates[0]).resolve()
 FFMPEG = TOPAZ_DIR / "ffmpeg.exe"
 FFPROBE = TOPAZ_DIR / "ffprobe.exe"
 
@@ -123,6 +140,7 @@ def topaz_status() -> dict:
         "topaz_found": FFMPEG.exists(),
         "root": str(ROOT),
         "root_exists": ROOT.exists(),
+        "nas_mount_error": MOUNT_ERROR,
         "root_files": sorted(p.name for p in ROOT.iterdir() if not p.name.startswith("."))[:30] if ROOT.exists() else [],
         "models_found": len(_models()),
         "jobs_running": states.count("running"),
@@ -214,13 +232,4 @@ def topaz_cancel(job_id: str) -> dict:
 
 
 if __name__ == "__main__":
-    # --http [port]: streamable HTTP on loopback only, for running in the desktop session
-    # (which can see the NAS). Reach it from the Mac through an SSH tunnel.
-    import sys
-    if "--http" in sys.argv:
-        i = sys.argv.index("--http")
-        mcp.settings.host = "127.0.0.1"
-        mcp.settings.port = int(sys.argv[i + 1]) if len(sys.argv) > i + 1 else 8765
-        mcp.run(transport="streamable-http")
-    else:
-        mcp.run()  # stdio
+    mcp.run()  # stdio

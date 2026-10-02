@@ -1,8 +1,8 @@
 # Topaz Video on Hyperion, driven from the Mac via MCP
 
-**Status (2026-10-02):** working on Hyperion itself. Remote access over Tailscale + SSH
-is verified. The MCP server passes a local stdio test. Not yet verified: registering it
-from the Mac, and whether an SSH session can see the `H:` drive.
+**Status (2026-10-02):** working end to end. Tailscale + SSH access, the MCP server
+(registered on the Mac over stdio/SSH) and NAS access from SSH sessions are all
+verified. Remaining: the Topaz licence (output is watermarked until then).
 
 **Goal:** from a Claude session on the Mac ("AirSpaceBoundary"), call `topaz_upscale`,
 which runs Topaz on Hyperion's GPU and writes the result to the NAS, without touching
@@ -58,9 +58,26 @@ stdio transport, run over SSH, so there is no network listener and no token.
 - One GPU job at a time. Never overwrites: output is `<name>-topaz.mp4` (draft) or
   `.mov` (final, ProRes 422 HQ), per the repo's draft/final rule.
 - Arguments are built as a list from validated fields; nothing goes through a shell.
-- Known issue: `topaz_status` GPU line showed an NVML error when run from the
-  Claude session. `nvidia-smi` works in a normal shell. Recheck over SSH.
-- `topaz/server/smoke_test.py <clip>` drives the server over stdio like a real client.
+- `topaz_status` also reports `root_exists`, the files in the root and `nas_mount_error`.
+  (An NVML error on the GPU line only happened inside the setup session; over SSH it is fine.)
+- `topaz/server/smoke_test.py <clip> [profile] [model] [scale]` drives the server over
+  stdio like a real client.
+- Tested: a 7 s clip with `gcg-5`, 2x, `final` took 54 s (about 3 fps) to a ProRes `.mov`.
+
+## NAS access from SSH sessions
+
+Drive letters and saved credentials from the desktop session are not visible to SSH
+logons, so `H:` and plain UNC paths fail over SSH. The root is chosen from, in order:
+`TOPAZ_ROOT`, `TOPAZ_PATH`, `H:\upscaling`, `\\192.168.5.5\tracklessdeep\upscaling`. If none
+exists, the server runs `server/mount-nas.ps1`, which connects the session using a
+DPAPI-encrypted credential at `%LOCALAPPDATA%\topaz-mcp\nas.cred.xml`. Create that file
+once, as robli on Hyperion, with `topaz/setup-nas-credential.ps1` (the password is never
+in the repo or seen by Claude). The host name `Cumulonimbus` does not resolve from
+Hyperion; use the IP.
+
+Fallback if this ever stops working: run the server over HTTP in the logged-in desktop
+session (loopback only) and reach it from the Mac through an SSH tunnel. It was built
+and tested once, then removed in favour of the credential approach.
 
 ## Register on the Mac
 
@@ -72,14 +89,11 @@ Restart the Claude session, then run `topaz_status`.
 
 ## Open items
 
-1. **SSH and `H:`:** mapped drives are per logon session. Check from the Mac:
-   `ssh -T robli@100.109.112.32 "Test-Path H:\upscaling"`. If `False`, switch the
-   root to the UNC path `\\192.168.5.5\tracklessdeep\upscaling` with saved
-   credentials. If SSH key logins cannot use saved credentials, run the server as a
-   scheduled task in the logged-in session instead. Hyperion must stay logged in either way.
-2. Register the MCP on the Mac and upscale a real take.
-3. Licence: buy or renew Topaz and sign in on Hyperion; decide whether to upgrade.
+1. Licence: buy or renew Topaz and sign in on Hyperion; decide whether to upgrade.
+   Until then every export carries a Topaz Labs watermark.
+2. Upscale a real take for deliverable use once licensed, and benchmark it.
 4. Provenance: each upscale gets a line in the shot notes or a sibling `provenance.md`
    (filename, Topaz Video version, model, scale, date, source). Add a Topaz section to
    `tools/services.md` once working.
-5. Remove the `test.mp4` / `test-topaz.mp4` clips from `H:\upscaling`.
+3. Clean up test clips in `H:\upscaling` (`test.mp4`, `test-topaz.mp4`, the shot-28b test
+   upscale) and `C:\topaz-work`.
