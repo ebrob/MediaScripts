@@ -1,149 +1,85 @@
-# Topaz Video AI on Hyperion, driven from the laptop via MCP
+# Topaz Video on Hyperion, driven from the Mac via MCP
 
-**Status:** plan only. Nothing installed. As of 2026-10-02 Hyperion (192.168.0.186)
-did not answer ping or SSH from the laptop, so step 0 comes first.
+**Status (2026-10-02):** working on Hyperion itself. Remote access over Tailscale + SSH
+is verified. The MCP server passes a local stdio test. Not yet verified: registering it
+from the Mac, and whether an SSH session can see the `H:` drive.
 
-**Goal:** from a Claude session on this laptop, call an `upscale_video` tool that
-runs Topaz on Hyperion's GPU and returns the upscaled file, without touching
+**Goal:** from a Claude session on the Mac ("AirSpaceBoundary"), call `topaz_upscale`,
+which runs Topaz on Hyperion's GPU and writes the result to the NAS, without touching
 Hyperion's GUI.
 
-## Known facts about Hyperion
+## Hyperion (as found)
 
-- AMD Ryzen 7 3700X, 64 GB RAM, Gigabyte GeForce RTX 2070 SUPER (8 GB, Turing).
-- Can mount the `tracklessdeep` NAS share, so the NAS transfer route is settled.
-- No Topaz licence yet. The CLI is allowed by the licence once bought; an
-  unlicensed install exports with a watermark, so buy before the real test.
-- Topaz upscaling is allowed under the repo's rules (decided 2026-10-02).
-- Windows 10 Home. Home cannot host Remote Desktop, so SSH is the only remote
-  route; OpenSSH Server does install on Home (Settings > Apps > Optional
-  features, or the PowerShell command in Step 0). Windows 10 is past end of
-  support (October 2025) unless Extended Security Updates are enrolled; check
-  that the current Topaz release still supports it.
-- Still unknown: whether SSH is set up.
+- Windows 10 Home, user `robli`. Ryzen 7 3700X, 64 GB RAM, **RTX 3060 Ti (8 GB)**,
+  driver 581.29. (An earlier draft of this plan said 2070 SUPER; that was wrong.)
+- LAN 192.168.0.186 (wired). Tailscale 100.109.112.32 (`hyperion`).
+- Topaz Video **1.1.0** (built 2025-12-15, the renamed "Video AI") in
+  `C:\Program Files\Topaz Labs LLC\Topaz Video\`. Models (~1.9 GB) in
+  `C:\ProgramData\Topaz Labs LLC\Topaz Video\models`. The GUI is offering an upgrade
+  and a renewal. **The install is unlicensed/expired: exports carry a "Topaz Labs"
+  watermark.** Fine for testing, not for deliverables. Buy or renew before real use,
+  and check Windows 10 is still supported by the current release before upgrading.
+- Bundled ffmpeg 8.0 has `tvai_up`, `tvai_fi`, `tvai_pe`, `tvai_cpe`, `tvai_stb`.
+  **No libx264.** Use `h264_nvenc` (needs `format=yuv420p`; it rejects 10-bit) for
+  drafts and `prores_ks` for finals.
+- Python 3.12 (user install), venv at `topaz/server/.venv`, `mcp<2` pinned.
+- OpenSSH Server running, key auth, default shell pwsh. Set up by `topaz/setup-ssh.ps1`
+  (also sets sleep to never and the machine-wide `TVAI_MODEL_DIR` / `TVAI_MODEL_DATA_DIR`).
+- NAS `tracklessdeep` is mounted on `H:` (`\\192.168.5.5\tracklessdeep`), work folder
+  `H:\upscaling`.
 
-**What the 2070 SUPER means:** it is supported, but 8 GB of VRAM is the limit.
-Expect heavy models (Iris, Nyx, Gaia) at 1080p to 4K to be slow and
-sometimes to need tiling or a smaller scale. Our 480p drafts and 1080p finals
-suit it well: 480p to 1080p is the comfortable job. Benchmark one 5 s clip
-before promising throughput. The 3700X's CPU matters little; decode is light.
+## Network
 
-## Design in one paragraph
+The Mac (192.168.4.161/22) sits behind a Tenda AXE5700 VR router on its own subnet, so
+it cannot reach Hyperion (192.168.0.x) directly: plain SSH timed out. Tailscale
+(GitHub sign-in, both machines on the same account) bypasses this. Use
+`ssh robli@100.109.112.32` or `robli@hyperion`. Leave the Tenda as it is.
 
-Topaz Video AI ships a command-line ffmpeg (`ffmpeg.exe` in its install folder,
-with `tvai_up`, `tvai_fi` and related filters). It is not a separate API.
-So the "MCP" is a small server we write that runs on Hyperion, wraps that
-ffmpeg, and exposes a few tools. The laptop's Claude connects to it over the LAN.
-Files move through a share both machines can see, so no video travels through
-the MCP protocol itself.
+## Benchmark (RTX 3060 Ti)
 
-```
-laptop (Claude)  --MCP/HTTP-->  topaz-mcp on Hyperion  -->  Topaz ffmpeg (GPU)
-       \                                 |
-        '------ SMB share / NAS (tracklessdeep) ---------'
-```
+2 s, 24 fps, 854x480 clip, `prob-4`, 2x to 1708x960: about 10.5 s either to H.264
+(`h264_nvenc`) or ProRes (`prores_ks`), about 4.6 fps. Synthetic clip; rerun on a
+real shot before promising throughput. 8 GB VRAM: expect heavy models (Iris, Nyx,
+Gaia) at high resolutions to be slow or need a smaller scale.
 
-## Step 0 — Reach Hyperion
+## The MCP server: `topaz/server/topaz_mcp.py`
 
-- Confirm it is on, awake (disable sleep), and its real IP. Give it a DHCP
-  reservation so 192.168.0.186 stays put.
-- Check the laptop and Hyperion are on the same subnet/VLAN.
-- Windows: allow ping (File and Printer Sharing echo rule) if wanted; enable
-  OpenSSH Server (`Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0`,
-  start and auto-start `sshd`). Set up key auth from the laptop.
-- Verify: `ssh <user>@192.168.0.186 nvidia-smi` returns the GPU.
-
-## Step 1 — Install Topaz on Hyperion
-
-1. Confirm the GPU and driver (NVIDIA, current Studio/Game Ready driver).
-2. Install Topaz Video AI (now sold as Topaz Video) from the Topaz site. It needs
-   a licence and a logged-in account on that machine, so this is a manual,
-   one-time step at Hyperion.
-3. Open the GUI once, sign in, and let it download the models you want
-   (Proteus, Iris, Artemis, Gaia, Nyx, Apollo, Chronos). The CLI only
-   uses models already downloaded.
-4. Note the install path, typically `C:\Program Files\Topaz Labs LLC\Topaz Video AI\`,
-   and the model directory env vars the app sets (`TVAI_MODEL_DIR`,
-   `TVAI_MODEL_DATA_DIR`). The CLI needs both set.
-5. Smoke test by hand in PowerShell with a 5 s clip, using the `ffmpeg.exe`
-   from that folder and a `tvai_up` filter (model, scale, etc.). Copy the exact
-   filter string the GUI shows under "Export > Show command". That string is
-   the ground truth for the wrapper.
-
-Open questions to settle at the machine: whether a headless session (no
-logged-in desktop) can run the CLI. The no `-sr`/`-esr` rule covers AtlasCloud
-resolution options; Topaz upscaling is separately approved.
-
-## Step 2 — File transfer
-
-Pick one:
-
-- **NAS (chosen):** both machines mount `tracklessdeep`
-  (`Cumulonimbus`). Mount it on Hyperion as a fixed drive letter (e.g. `T:`)
-  with saved credentials, and make it persistent at logon so the service sees it. Laptop writes the source to `amethyst-passage/scenes/...`;
-  Hyperion reads the same path and writes the result beside it. This matches the
-  repo's existing off-repo media layout.
-- **Projects drive:** not suitable unless it is shared to Hyperion.
-- **scp/rsync over SSH:** fallback if Hyperion cannot mount the NAS.
-
-The MCP takes paths relative to a configured root and maps them to a Windows
-path, so Claude can keep citing repo-relative paths.
-
-## Step 3 — The MCP server (`tools/topaz/server/`)
-
-Python with the `mcp` SDK (FastMCP), running on Hyperion as a service.
-
-Tools:
+stdio transport, run over SSH, so there is no network listener and no token.
 
 | Tool | Does |
 |---|---|
-| `topaz_status` | GPU, free VRAM, queue length, Topaz version, models present |
-| `topaz_upscale` | `input`, `scale` or target resolution, `model`, `output` → starts a job, returns `job_id` |
-| `topaz_job` | state, progress (parsed from ffmpeg stderr), output path, log tail |
-| `topaz_cancel` | kills the job |
-| `topaz_list_models` | what the installed build offers |
+| `topaz_status` | GPU, Topaz found, root, model count, queue |
+| `topaz_list_models` | local model ids |
+| `topaz_upscale` | `input`, `model` (default `prob-4`), `scale` 1/2/4, `profile` draft/final, optional `output` -> `job_id` |
+| `topaz_job` | state, progress, elapsed, log tail (one job or all) |
+| `topaz_cancel` | kill a queued or running job |
 
-Design points:
+- Paths are relative to `TOPAZ_ROOT` (default `H:\upscaling`) and cannot escape it.
+- One GPU job at a time. Never overwrites: output is `<name>-topaz.mp4` (draft) or
+  `.mov` (final, ProRes 422 HQ), per the repo's draft/final rule.
+- Arguments are built as a list from validated fields; nothing goes through a shell.
+- Known issue: `topaz_status` GPU line showed an NVML error when run from the
+  Claude session. `nvidia-smi` works in a normal shell. Recheck over SSH.
+- `topaz/server/smoke_test.py <clip>` drives the server over stdio like a real client.
 
-- Jobs run one at a time through a queue; a GPU is the limit.
-- Long renders are async (start, then poll), because MCP calls should not block
-  for minutes.
-- Never pass user strings into a shell. Build the argument list from validated
-  fields, and restrict paths to the configured root.
-- Output is a new file (`name-topaz.mov` or `.mp4`), never an overwrite. Follow
-  the repo's rule that finals are `.mov`, drafts `.mp4`.
-- Transport: streamable HTTP bound to the LAN with a bearer token. Alternative
-  with no network listener: stdio over SSH,
-  `ssh hyperion python -m topaz_mcp`.
-- Run it with NSSM or Task Scheduler "at logon" if Topaz needs a desktop
-  session, otherwise as a service.
+## Register on the Mac
 
-## Step 4 — Register on the laptop
-
-Add to the repo `.mcp.json` (gitignored, holds live keys; do not commit):
-
-```json
-{ "mcpServers": { "topaz": { "type": "http",
-  "url": "http://192.168.0.186:8765/mcp",
-  "headers": { "Authorization": "Bearer <token>" } } } }
+```bash
+claude mcp add topaz -- ssh -T robli@100.109.112.32 "C:\GitHub\MediaScripts\topaz\server\.venv\Scripts\python.exe C:\GitHub\MediaScripts\topaz\server\topaz_mcp.py"
 ```
 
-or the SSH stdio form. MCP servers load at session start, so restart the session.
+Restart the Claude session, then run `topaz_status`.
 
-## Step 5 — Provenance and docs
+## Open items
 
-Per the repo's provenance rule, every upscale gets a line in the shot's notes or
-a sibling `provenance.md`: filename, tool (Topaz Video AI vX.Y), model, scale,
-date, source file. Add a "Topaz" section to `tools/services.md` once working.
-
-## Build order
-
-1. Step 0 (reach Hyperion), then the manual install and smoke test (Step 1).
-2. Hand-run ffmpeg on one real shot take; check quality and speed.
-3. Write the server with `topaz_status` and `topaz_upscale`; test locally on Hyperion.
-4. Wire up the NAS paths; test from the laptop with curl.
-5. Register in `.mcp.json`; upscale one take from a Claude session.
-
-## Still needed
-
-- OpenSSH enabled on Hyperion with a key from the laptop.
-- A Topaz licence purchased and signed in on Hyperion.
+1. **SSH and `H:`:** mapped drives are per logon session. Check from the Mac:
+   `ssh -T robli@100.109.112.32 "Test-Path H:\upscaling"`. If `False`, switch the
+   root to the UNC path `\\192.168.5.5\tracklessdeep\upscaling` with saved
+   credentials. If SSH key logins cannot use saved credentials, run the server as a
+   scheduled task in the logged-in session instead. Hyperion must stay logged in either way.
+2. Register the MCP on the Mac and upscale a real take.
+3. Licence: buy or renew Topaz and sign in on Hyperion; decide whether to upgrade.
+4. Provenance: each upscale gets a line in the shot notes or a sibling `provenance.md`
+   (filename, Topaz Video version, model, scale, date, source). Add a Topaz section to
+   `tools/services.md` once working.
+5. Remove the `test.mp4` / `test-topaz.mp4` clips from `H:\upscaling`.

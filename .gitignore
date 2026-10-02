@@ -1,1 +1,4 @@
 .DS_Store
+
+topaz/server/.venv/
+__pycache__/
