@@ -21,7 +21,7 @@ No video travels through MCP; both machines see the same NAS folder.
 **Hyperion** (the GPU box)
 - Windows 10 Home, user `robli`. Ryzen 7 3700X, 64 GB RAM, **RTX 3060 Ti (8 GB)**,
   driver 581.29. (An early draft said 2070 SUPER; that was wrong.)
-- LAN 192.168.0.186 (wired, gateway 192.168.0.1). Tailscale 100.109.112.32 (`hyperion`).
+- LAN 192.168.4.23 (reserved in the Tenda DHCP). Tailscale 100.109.112.32 (`hyperion`) still works as a fallback.
 - Power plan High performance; sleep set to never on AC by `setup-ssh.ps1`.
 - Has NordVPN adapters (disconnected); unrelated.
 
@@ -34,15 +34,15 @@ folder `upscaling`. The name `Cumulonimbus` does **not** resolve from Hyperion; 
 
 ## Network and remote access
 
-The Mac is on a different subnet behind the Tenda VR router (own DHCP/NAT), so plain SSH
-to 192.168.0.186 timed out. Leave the Tenda alone (it is a dedicated VR router).
-**Tailscale** (GitHub sign-in, same account on both machines) bypasses it.
+Hyperion and the Mac are now on the same subnet (192.168.4.x, behind the Tenda), so plain
+SSH over the LAN works and Tailscale is no longer required. (Earlier, Hyperion sat on
+192.168.0.x and the Mac could not route to it.)
 
 - Hyperion: OpenSSH Server running (Windows 10 Home can host SSH but not Remote Desktop),
   key auth, default shell pwsh, firewall rule `OpenSSH (LAN only)` plus the stock rule
   for port 22. All set by `topaz/setup-ssh.ps1`, run once in an admin PowerShell with
   the Mac's public key.
-- Mac: `ssh robli@100.109.112.32` (or `robli@hyperion`). The user name is `robli`.
+- Mac: `ssh robli@192.168.4.23`. The user name is `robli`.
 - Hyperion must be powered on and awake. It does not need to stay logged in at the desktop
   now (see the NAS section).
 
@@ -122,8 +122,33 @@ with `New-SmbMapping` using a DPAPI-encrypted credential at
 ## Register on the Mac
 
 ```bash
-claude mcp add topaz -- ssh -T robli@100.109.112.32 "C:\GitHub\MediaScripts\topaz\server\.venv\Scripts\python.exe C:\GitHub\MediaScripts\topaz\server\topaz_mcp.py"
+claude mcp add topaz -- ssh -T robli@192.168.4.23 "C:\GitHub\MediaScripts\topaz\server\.venv\Scripts\python.exe C:\GitHub\MediaScripts\topaz\server\topaz_mcp.py"
 ```
+
+**Alternative: project-scoped `.mcp.json`** at the repo root (what
+`claude mcp add --scope project` writes). Claude Code asks for approval the first time
+it sees a project server.
+
+```json
+{
+  "mcpServers": {
+    "topaz": {
+      "command": "ssh",
+      "args": [
+        "-T",
+        "robli@192.168.4.23",
+        "C:\\GitHub\\MediaScripts\\topaz\\server\\.venv\\Scripts\\python.exe C:\\GitHub\\MediaScripts\\topaz\\server\\topaz_mcp.py"
+      ]
+    }
+  }
+}
+```
+
+- Run `claude mcp remove topaz` first so the local-scope entry in `~/.claude.json`
+  doesn't duplicate it.
+- The file commits the IP and user name. Fine for a private repo; otherwise use an
+  `~/.ssh/config` host alias and put the alias in `args`.
+- `${VAR}` and `${VAR:-default}` expansion works in `command` and `args`.
 
 Restart the Claude session, then run `topaz_status`. Expect `root_exists: true`, the
 files in the folder, an empty `nas_mount_error`, and `topaz_found: true`.
@@ -139,7 +164,7 @@ files in the folder, an empty `nas_mount_error`, and `topaz_found: true`.
 
 | Symptom | Cause / fix |
 |---|---|
-| SSH to 192.168.0.186 times out from the Mac | Different subnet behind the Tenda router. Use the Tailscale address. |
+| SSH to Hyperion times out from the Mac | Check Hyperion's current IP (the Tenda DHCP reservation should keep it fixed); the Tailscale address 100.109.112.32 is a fallback. |
 | `ipconfig` / `Test-NetConnection` not found | Those are Windows commands; on the Mac use `ifconfig` and `nc -vz`. |
 | `topaz_upscale` fails, `root_exists: false` | The SSH session cannot see the NAS: check the credential file exists and `nas_mount_error`. |
 | Mac sees old `C:\topaz-work` root or old behaviour | The Mac's server process predates a code change. Fully restart the Claude session. |
